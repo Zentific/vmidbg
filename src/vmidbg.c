@@ -324,10 +324,10 @@ int get_gdb_packet(vmi_dbg_ctx *ctx, char *buffer, int buffer_size) {
         if (received_checksum != checksum) {
             fprintf(stderr, "got bad checksum: 0x%02x != 0x%02x\n",
                     received_checksum, checksum);
-            putc('-', fp);
+            fwrite("-", sizeof(char), 1, fp);
         } else {
         if(!ctx->no_ack_mode)
-            putc('+', fp);
+            fwrite("+", sizeof(char), 1, fp);
         }
         fflush(fp);
         if (received_checksum == checksum) {
@@ -346,18 +346,19 @@ leave:
 
 void put_packet(vmi_dbg_ctx *ctx, char *packet) {
     FILE *fp = ctx->client_fp;
-    putc('$', fp);
+    fwrite("$", sizeof(char), 1, fp);
     uint8_t checksum = 0;
     char *ptr;
     for (ptr = packet; *ptr != 0; ptr++) {
         assert(*ptr != '$');
         assert(*ptr != '#');
-        putc(*ptr, fp);
+        fwrite(ptr, sizeof(char), 1, fp);
         checksum += *ptr;
     }
-    putc('#', fp);
-    putc(int_to_hex(checksum >> 4), fp);
-    putc(int_to_hex(checksum & 0xf), fp);
+    fwrite("#", sizeof(char), 1, fp);
+    char hex[2] = {0};
+    write_hex_byte((uint8_t*)&hex, checksum);
+    fwrite(hex, sizeof(char), 2, fp);
 #ifdef DEBUG
     fprintf(stderr, "sent: '%s'\n", packet);
 #endif

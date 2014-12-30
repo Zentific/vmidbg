@@ -1,4 +1,5 @@
 robustness in general
+speed enhancements, if possible (remote serial, plaintext protocols are not particularly efficient)
 more configurable (e.g., listening port)
 just enough user-space support to be useful
 some custom cmds (dmesg, list processes, vm event stats, etc)
