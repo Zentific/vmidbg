@@ -1,0 +1,23 @@
+robustness in general
+more configurable (e.g., listening port)
+just enough user-space support to be useful
+some custom cmds (dmesg, list processes, vm event stats, etc)
+implement windbg protocol (stubbed currently, but non-functional)
+
+
+OTHER (errors, etc):
+    /* NOTE:  the following internal error is occurring. not sure why. could be unexpected event with a stop? unsure.
+    remote_stop called
+    Packet received: T02thread:p0.0;thread:p1.1;thread:p2.2;thread:p3.3;thread:p4.4;thread:p5.5;thread:p6.6;thread:p7.7;thread:p8.8;thread:p9.9;thread:pa.a;thread:pb.b;thread:pc.c;thread:pd.d;thread:pe.e;thread:pf.f;thread:p10.10;thread:p11.11;thread:p12.12;thread:p13.13;thread:p14.14;thread:p15.15;thread:p16.16;thread:p17.17;thread:p18.18;thread:p19.19;thread:p1a.1a;thread:p1b.1b;thread:p1c.1c;thread:p1d.1d;thread:p1e.1e;thread:p1f.1f;thread:p20.20;thread:p21.21;thread:p26.26;thread:p28.28;thread:p29.29;thread:p48.48;thread:pd5.d5;thread:pd6.d6;thread:p110.110;thread:p112.112;thread:p125.125;thread:p126.126;thread:p14e.14e;thread:p17d.17d;thread:p2ab.2ab;thread:p2ac.2ac;thread:p2f0.2f0;thread:p39e.39e;thread:p3ae.3ae;thread:p3d6.3d6;thread:p3ef.3ef;thread:p3f8.3f8;thread:p3f9.3f9;thread:p415.415;thread:p41e.41e;thread:p42f.42f;thread:p47b.47b;thread:p483.483;thread:p493.493;thread:p49b.49b;thread:p4a3.4a3;thread:p4ae.4ae;thread:p4bb.4bb;thread:p4bd.4bd;thread:p4bf.4bf;thread:p4c1.4c1;thread:p4c4.4c4;thread:p4c6.4c6;thread:p4c8.4c8;thread:p4ce.4ce;thread:p4cf.4cf;thread:p4fa.4fa;thread:p53c.53c;thread:p564.564;
+    /tmp/buildd/gdb-7.4.1+dfsg/gdb/infrun.c:3189: internal-error: handle_inferior_event: Assertion `inf' failed.
+    A problem internal to GDB has been detected,
+    further debugging may prove unreliable.
+    Quit this debugging session? (y or n) n
+    /tmp/buildd/gdb-7.4.1+dfsg/gdb/infrun.c:3189: internal-error: handle_inferior_event: Assertion `inf' failed.
+    A problem internal to GDB has been detected,
+    further debugging may prove unreliable.
+    Create a core file of GDB? (y or n) n
+    (gdb) delete
+
+    */
+

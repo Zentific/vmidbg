@@ -1,0 +1,89 @@
+Copyright 2014 Steven Maresca/Zentific LLC
+LibVMI gdb server
+Usage: vmidbg name-of-vm
+
+    This tool is a enables debuggers to remotely access and manipulate VM memory, utilizing the virtual machine
+    introspection capabilities of LibVMI. It is intended as a demonstration of LibVMI capabilities, but will be
+    gradually enhanced into a robust tool.
+
+    While many hypervisors natively offer some variety of debug shim, LibVMI offers some interesting
+    opportunities. As a flexible VMI abstraction library, LibVMI permits access into VM memory and CPU
+    registers, address translation, interception of many event types, and deep access to userspace. Using any
+    suitable debug symbols for the running kernel/program, the connected debugger can inspect/modify system
+    state in every way expected of a typical in-band kernel debugger. Using the custom command features often
+    prevalent in low level debuggers, it is possible to embed helper tools into the vmidbg server, such as process
+    listing, process terminatinon, kernel log dumps, etc.
+
+    Currently, vmidbg supports gdb clients and Linux guests. A foundation has been laid for WinDbg, and adding
+    support for Windows will require minimal effort.
+
+Example invocation with output from a connect/disconnect of a gdb client:
+
+    root@host:~# vmidbg name-of-vm
+    LibVMI init succeeded!
+    New connection from 127.0.0.1:47630
+    Awaiting connection from gdb
+    Enabling no-ack mode
+    extended multiprocess mode enabled by client
+    handle_gdb: Client disconnected or error encountered while reading packet.
+    handle_gdb complete
+    root@host:~#
+
+Clientside usage:
+    launch gdb:
+        # gdb /path/to/executable-symbols
+        (gdb) set arch i386             # DEFAULT, need not be used unless running on non x86
+        (gdb) set arch i386:x86-64      # just for completeness. NEITHER is needed using vmidbg, which automatically detects
+        (gdb) target extended-remote localhost:2159
+        (gdb) bt
+        (gdb) info registers
+
+      OR
+
+        # gdb
+        (gdb) symbol-file /path/to/executable-symbols
+        (gdb) target extended-remote localhost:2159
+        (gdb) bt
+        (gdb) info registers
+
+
+    E.g., To load symbols:
+    gdb /usr/lib/debug/lib/modules/2.6.32-431.el6.centos.plus.x86_64/vmlinux
+
+    General gdb tips
+        # showing size of object (uses array of obj type, index 1 being the distance in bytes from index 0 == size of obj)
+        (gdb) print &((struct task_struct *)0)[1]
+        $1 = (struct task_struct *) 0xa58
+
+        # showing offset in bytes of structmember relative to base of struct
+        (gdb) print &((struct task_struct *)0)->tasks
+        $1 = (struct list_head *) 0x448
+
+        # offsetof, but this time in decimal
+        (gdb) print/d &((struct task_struct *)0)->tasks
+        $1 = (struct list_head *) 0x448
+
+        # disassemble (eXamine as Instructions) at an address:
+        (gdb) x/i 0xdeadbeef
+
+        # disassemble a symbol (requires symbol to have start/end addr to be useful, really)
+        (gdb) disas some_function
+
+        # disassemble all instructions corresponding to a particular line of code (requires debug data) 
+        (gdb) info line main
+        Line 3 of "main.c" starts at address 0x401050 <main> and ends at 0x401075 <main+
+        (gdb) disas 0x401050 0x401075
+        Dump of assembler code from 0x401050 to 0x401075:
+        0x00401050 <main+0>:    push   %ebp
+        0x00401051 <main+1>:    mov    %esp,%ebp
+        0x00401053 <main+3>:    sub    $0x18,%esp
+        0x00401056 <main+6>:    and    $0xfffffff0,%esp
+        0x00401059 <main+9>:    mov    $0x0,%eax
+        0x0040105e <main+14>:   add    $0xf,%eax
+        0x00401061 <main+17>:   add    $0xf,%eax
+        0x00401064 <main+20>:   shr    $0x4,%eax
+        0x00401067 <main+23>:   shl    $0x4,%eax
+        0x0040106a <main+26>:   mov    %eax,-0xc(%ebp)
+        0x0040106d <main+29>:   mov    -0xc(%ebp),%eax
+        0x00401070 <main+32>:   call   0x4010c4 <_alloca>
+        End of assembler dump.
