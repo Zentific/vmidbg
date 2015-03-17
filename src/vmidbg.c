@@ -1599,7 +1599,7 @@ int main (int argc, char **argv) {
     }
 
     // Initialize the libvmi library.
-    if (vmi_init(&vmi, VMI_XEN | VMI_INIT_COMPLETE | VMI_INIT_EVENTS, name) == VMI_FAILURE){
+    if (vmi_init(&vmi, VMI_XEN | VMI_INIT_PARTIAL | VMI_INIT_EVENTS, name) == VMI_FAILURE){
         fprintf(stderr, "Failed to init LibVMI library.\n");
         goto fail;
     }
