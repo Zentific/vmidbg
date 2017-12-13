@@ -451,7 +451,10 @@ event_response_t gdb_bp_notify(vmi_instance_t vmi, vmi_event_t *event){
 
         /* Assume that it's a breakpoint set from within the guest, so be sure
          *  to reinject to avoid surprises and keep the VM running sanely.
+         * Assume basic non-prefixed breakpoints of the 0xCC variety (the only
+         *  kind we and normal debuggers inject). TODO, disassemble to confirm
          */
+        event->interrupt_event.insn_length = 1;
         event->interrupt_event.reinject = 1;
 
         return;
@@ -1565,6 +1568,9 @@ void handle_gdb(vmi_dbg_ctx *ctx){
                    *   Could treat like a reboot, because we can't relaunch a
                    *    task very cleanly.
                    */
+        case 'C': /* continue at address OR continue with signal */
+            /* e.g., C0f means continue + deliver sig 15 */
+
         default:
             fprintf(stderr, "ERROR: unhandled packet='%s'\n", request);
             put_packet(ctx, "");
@@ -1642,16 +1648,20 @@ int main (int argc, char **argv) {
       GHashTable *bp_lookup = g_hash_table_new_full(g_str_hash, g_str_equal, free, breakpoint_free);
      */
 
-    vmi_event_t *int3_event = calloc(1, sizeof(vmi_event_t));
-    int3_event->type = VMI_EVENT_INTERRUPT;
-    int3_event->interrupt_event.reinject = 0;
-    int3_event->interrupt_event.intr = INT3;
-    int3_event->callback = gdb_bp_notify;
-    int3_event->data = ctx;
+    vmi_event_t int3_event = {0};
+    int3_event.type = VMI_EVENT_INTERRUPT;
+    int3_event.version = VMI_EVENTS_VERSION;
+    int3_event.interrupt_event.reinject = 0;
+    int3_event.interrupt_event.intr = INT3;
+    int3_event.callback = gdb_bp_notify;
+    int3_event.data = ctx;
 
-    ctx->int3_event = int3_event;
+    ctx->int3_event = &int3_event;
 
-    vmi_register_event(vmi, int3_event);
+    if(VMI_FAILURE == vmi_register_event(vmi, &int3_event)){
+        fprintf(stderr, "vmidbg INT3 event registration failed\n");
+        goto fail;
+    }
 
     if(get_connection(ctx) < 0){
         fprintf(stderr, "vmidbg init failed.\n");
