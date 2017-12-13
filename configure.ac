@@ -35,7 +35,7 @@ AC_CHECK_LIB(glib-2.0, [g_malloc0, g_tree_lookup], [], [AC_ERROR([glib-2.0 libra
 # Check for LibVMI
 AC_CHECK_HEADER([libvmi/libvmi.h], [], [AC_ERROR([LibVMI was not found on the system!])])
 
-AC_CHECK_LIB(vmi, [vmi_init, vmi_init_custom], [], [AC_ERROR([LibVMI library unusable!])])
+AC_CHECK_LIB(vmi, [vmi_init], [], [AC_ERROR([LibVMI library unusable!])])
 
 AC_CHECK_HEADER([xenstore.h])
 AC_CHECK_LIB(xenstore, [xc_read, xs_transaction_start], [], [AC_ERROR([Xenstore not found!])])

@@ -1,4 +1,4 @@
-/* Copyright 2014 Steven Maresca/Zentific LLC */
+/* Copyright 2014-2017  Steven Maresca/Zentific LLC */
 
 #define _GNU_SOURCE
 
@@ -15,6 +15,7 @@
 #include <unistd.h> // for read() only now used by only full_packet()
 
 #include <libvmi/libvmi.h>
+#include <libvmi/events.h>
 #include "vmidbg.h"
 
 static uint8_t INT3_INSTR = 0xCC;
@@ -58,6 +59,7 @@ fail:
     return NULL;
 }
 
+/* return of canonical address OR ~0LL to denote error */
 addr_t get_executing_task(vmi_instance_t vmi, unsigned long vcpu){
     addr_t executing_task = 0;
     static addr_t per_cpu_current_task_offset = 0;
@@ -80,20 +82,34 @@ addr_t get_executing_task(vmi_instance_t vmi, unsigned long vcpu){
     }
 
     if(vmi_get_vcpureg (vmi, &base, fs_or_gs, vcpu) == VMI_FAILURE){
-        printf("uhoh! reg fetch for fs/gs fail.\n");
+        fprintf(stderr, "Error: reg fetch for fs/gs fail.\n");
+        goto err;
     }
 
     /* offset is for per_cpu__current_task which holds a 
      * pointer to task_struct pointer = gs+offset
+     *
+     * VMI_FAILURE return ignored, because we have fallback symbols to check
      */
-    if(!per_cpu_current_task_offset)
-        per_cpu_current_task_offset = vmi_translate_ksym2v(vmi, "per_cpu__current_task");
-    if(!per_cpu_current_task_offset)
-        per_cpu_current_task_offset =  vmi_translate_ksym2v(vmi, "current_task");
+    if(!per_cpu_current_task_offset){
+        vmi_translate_ksym2v(vmi, "per_cpu__current_task", &per_cpu_current_task_offset);
+    }
+
+    if(!per_cpu_current_task_offset){
+        vmi_translate_ksym2v(vmi, "current_task", &per_cpu_current_task_offset);
+    }
+
+    if(!per_cpu_current_task_offset){
+        fprintf(stderr, "Error: could not fetch va of symbol holding a reference to the current task.\n");
+        goto err;
+    }
 
     vmi_read_addr_va(vmi, base+per_cpu_current_task_offset, 0, &executing_task);
 
     return executing_task;
+
+err:
+    return ~0LL;
 }
 
 vmidbg_status get_connection(vmi_dbg_ctx *ctx) {
@@ -374,7 +390,7 @@ void put_packet(vmi_dbg_ctx *ctx, char *packet) {
 
 }
 
-void gdb_step_notify(vmi_instance_t vmi, vmi_event_t *event){
+event_response_t gdb_step_notify(vmi_instance_t vmi, vmi_event_t *event){
 
     vmi_dbg_ctx *ctx = NULL;
 
@@ -406,10 +422,10 @@ printf("gdb step notify, paused. sending stop reply now\n");
     put_packet(ctx, pid);
     free(pid);
 
-    return;
+    return 0;
 }
 
-void gdb_bp_notify(vmi_instance_t vmi, vmi_event_t *event){
+event_response_t gdb_bp_notify(vmi_instance_t vmi, vmi_event_t *event){
 
     vmi_dbg_ctx *ctx = NULL;
     breakpoint_t *bp = NULL;
@@ -435,7 +451,10 @@ void gdb_bp_notify(vmi_instance_t vmi, vmi_event_t *event){
 
         /* Assume that it's a breakpoint set from within the guest, so be sure
          *  to reinject to avoid surprises and keep the VM running sanely.
+         * Assume basic non-prefixed breakpoints of the 0xCC variety (the only
+         *  kind we and normal debuggers inject). TODO, disassemble to confirm
          */
+        event->interrupt_event.insn_length = 1;
         event->interrupt_event.reinject = 1;
 
         return;
@@ -476,7 +495,7 @@ printf("attempting to send bp notification\n");
     free(pid);
 printf("successfully sent bp notification\n");
 
-    return;
+    return 0;
 }
 
 void vmi_regs_to_gdb(vmi_instance_t vmi, struct gdb_regs *regs, unsigned long vcpu, uint32_t word_size){
@@ -579,15 +598,18 @@ int gdb_rsp_interrupt_sequence(vmi_dbg_ctx *ctx, char * request) {
          */
         char reply[MAX_VMIDBG_PACKET] = {0};
         char *r = reply;
+        addr_t pid_offset = 0;
+        addr_t tasks_offset = 0;
 
         addr_t list_head = 0;
         addr_t next_process = 0;
         vmi_pid_t task_pid = -1;
 
-        int pid_offset = vmi_get_offset(ctx->vmi, "linux_pid");
-        int tasks_offset = vmi_get_offset(ctx->vmi, "linux_tasks");
+        vmi_get_offset(ctx->vmi, "linux_pid", &pid_offset);
+        vmi_get_offset(ctx->vmi, "linux_tasks", &tasks_offset);
 
-        list_head = next_process = vmi_translate_ksym2v(ctx->vmi, "init_task");
+        vmi_translate_ksym2v(ctx->vmi, "init_task", &list_head);
+        next_process = list_head;
 
         strncat(r, "T02", 3);
         r+=3;
@@ -705,7 +727,9 @@ int gdb_rsp_read_mem(vmi_dbg_ctx *ctx, char * request) {
     assert(*rest == 0);
     char reply[MAX_VMIDBG_PACKET] = {0};
     uint8_t * vmibuf = calloc(1, mem_size);
-    vmi_read_va(ctx->vmi, mem_addr, 0, vmibuf, mem_size);
+
+    size_t bytes_read = 0;
+    vmi_read_va(ctx->vmi, mem_addr, 0, mem_size, vmibuf, &bytes_read);
     write_hex_bytes(reply, vmibuf, mem_size);
     free(vmibuf);
     reply[mem_size * 2] = 0;
@@ -803,12 +827,14 @@ int gdb_rsp_get_query(vmi_dbg_ctx *ctx, char * request) {
         /* do stuff here, process cmd */
         char * response_txt = NULL;
         if ( strncmp(cmd, "show vm", 7) == 0 ){
+
+            /* hard-coded 0th vcpu */
             char *vm_name = vmi_get_name(ctx->vmi);
             asprintf(&response_txt,
                 "vm_name='%s' domid='%lu' addr_width='%u'"
                 " os_type='%u' page_mode='%u'\n",
                 vm_name, vmi_get_vmid(ctx->vmi), vmi_get_address_width(ctx->vmi),
-                vmi_get_ostype(ctx->vmi), vmi_get_page_mode(ctx->vmi));
+                vmi_get_ostype(ctx->vmi), vmi_get_page_mode(ctx->vmi, 0));
             free(vm_name);
         } else {
             response_txt = strdup("awesome cmd response\n");
@@ -1542,6 +1568,9 @@ void handle_gdb(vmi_dbg_ctx *ctx){
                    *   Could treat like a reboot, because we can't relaunch a
                    *    task very cleanly.
                    */
+        case 'C': /* continue at address OR continue with signal */
+            /* e.g., C0f means continue + deliver sig 15 */
+
         default:
             fprintf(stderr, "ERROR: unhandled packet='%s'\n", request);
             put_packet(ctx, "");
@@ -1599,7 +1628,8 @@ int main (int argc, char **argv) {
     }
 
     // Initialize the libvmi library.
-    if (vmi_init(&vmi, VMI_XEN | VMI_INIT_PARTIAL | VMI_INIT_EVENTS, name) == VMI_FAILURE){
+    if (vmi_init_complete(&vmi, name, VMI_INIT_DOMAINNAME | VMI_INIT_EVENTS,
+                              NULL, VMI_CONFIG_GLOBAL_FILE_ENTRY, NULL, NULL) == VMI_FAILURE) {
         fprintf(stderr, "Failed to init LibVMI library.\n");
         goto fail;
     }
@@ -1618,16 +1648,20 @@ int main (int argc, char **argv) {
       GHashTable *bp_lookup = g_hash_table_new_full(g_str_hash, g_str_equal, free, breakpoint_free);
      */
 
-    vmi_event_t *int3_event = calloc(1, sizeof(vmi_event_t));
-    int3_event->type = VMI_EVENT_INTERRUPT;
-    int3_event->interrupt_event.reinject = 0;
-    int3_event->interrupt_event.intr = INT3;
-    int3_event->callback = gdb_bp_notify;
-    int3_event->data = ctx;
+    vmi_event_t int3_event = {0};
+    int3_event.type = VMI_EVENT_INTERRUPT;
+    int3_event.version = VMI_EVENTS_VERSION;
+    int3_event.interrupt_event.reinject = 0;
+    int3_event.interrupt_event.intr = INT3;
+    int3_event.callback = gdb_bp_notify;
+    int3_event.data = ctx;
 
-    ctx->int3_event = int3_event;
+    ctx->int3_event = &int3_event;
 
-    vmi_register_event(vmi, int3_event);
+    if(VMI_FAILURE == vmi_register_event(vmi, &int3_event)){
+        fprintf(stderr, "vmidbg INT3 event registration failed\n");
+        goto fail;
+    }
 
     if(get_connection(ctx) < 0){
         fprintf(stderr, "vmidbg init failed.\n");
